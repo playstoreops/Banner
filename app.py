@@ -22,7 +22,7 @@ BANNER_END_Y = 0.65
 # Primary  : NotoSansCJKjp-Bold.otf          (Latin, CJK, most scripts)
 # Symbols  : NotoSansSymbols2-Regular.ttf    (enclosed chars, misc symbols, superscripts, emoji-adjacent)
 # Cherokee : NotoSansCherokee.ttf            (Cherokee script)
-FONT_FILE     = "NotoSansCJKjp-Bold.otf"
+FONT_FILE     = "arial_unicode_bold.otf"
 FONT_SYMBOLS  = "NotoSansSymbols2-Regular.ttf"
 FONT_CHEROKEE = "NotoSansCherokee.ttf"
 
