@@ -39,7 +39,7 @@ BASE64 = "aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL1NoYWhHQ3JlYXRvci9pY29uQG1haW4vUE
 info_URL = base64.b64decode(BASE64).decode('utf-8')
 
 FONT_FILE = "arial_unicode_bold.otf"
-FONT_CHEROKEE = "NotoSansCherokee.ttf"
+FONT_CHEROKEE = "unifont_upper_sample-17.0.04.otf"
 
 client = httpx.AsyncClient(
     headers={
