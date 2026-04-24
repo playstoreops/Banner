@@ -84,16 +84,13 @@ def bytes_to_image(img_bytes):
     return Image.new("RGBA", (400, 400), (200, 200, 200, 255))
     
 # ================= IMAGE PROCESS =================
-#def process_banner_image(data, avatar_bytes, banner_bytes, pin_bytes):
-
 def process_banner_image(data, avatar_bytes, banner_bytes):
     avatar_img = bytes_to_image(avatar_bytes)
     banner_img = bytes_to_image(banner_bytes)
-    #pin_img = bytes_to_image(pin_bytes)
 
-    level = str(data.get("AccountLevel", "0"))
-    name = data.get("AccountName", "Unknown")
-    guild = data.get("GuildName", "")
+    level = str(data.get("AccountLevel") or "0")
+    name = data.get("AccountName") or "Unknown"
+    guild = data.get("GuildName") or ""   # FIX: None-safe, handles null from API
 
     TARGET_HEIGHT = 400
 
@@ -151,10 +148,6 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
     draw_text(av_w + 65, 40, name, font_large, font_large_cherokee, 4)
     draw_text(av_w + 65, 220, guild, font_small, font_small_cherokee, 3)
 
-    """if pin_bytes:
-        pin_img = pin_img.resize((130, 130), Image.LANCZOS)
-        combined.paste(pin_img, (0, TARGET_HEIGHT - 130), pin_img)"""
-
     lvl_text = f"Lvl.{level}"
     bbox = draw.textbbox((0, 0), lvl_text, font=font_level)
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -177,40 +170,30 @@ async def get_banner(uid: str):
 
     data = resp.json()
     
-    
     account = data.get("AccountInfo", {})
     captain = data.get("captainBasicInfo", {})
-    guild = data.get("GuildInfo", {})
+    guild_info = data.get("GuildInfo", {})
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    
     avatar_id = account.get("AccountAvatarId") or captain.get("headPic")
     banner_id = account.get("AccountBannerId") or captain.get("bannerId")
-    #pin_id = captain.get("pinId") 
 
-    #print(f"DEBUG: Found IDs -> Avatar: {avatar_id}, Banner: {banner_id}, Pin: {pin_id}")
-    
     print(f"DEBUG: Found IDs -> Avatar: {avatar_id}, Banner: {banner_id}")
 
     avatar_task = fetch_image_bytes(avatar_id)
     banner_task = fetch_image_bytes(banner_id)
-    #pin_task = fetch_image_bytes(pin_id)
-
-    #avatar, banner, pin = await asyncio.gather(avatar_task, banner_task, pin_task)
 
     avatar, banner = await asyncio.gather(avatar_task, banner_task)
     
     banner_data = {
-        "AccountLevel": account.get("AccountLevel", "0"),
-        "AccountName": account.get("AccountName", "Unknown"),
-        "GuildName": guild.get("GuildName", "")
+        "AccountLevel": account.get("AccountLevel") or "0",
+        "AccountName": account.get("AccountName") or "Unknown",
+        "GuildName": guild_info.get("GuildName") or ""   # FIX: None-safe
     }
 
     loop = asyncio.get_event_loop()
-    #img_io = await loop.run_in_executor(process_pool, process_banner_image, banner_data, avatar, banner, pin)
-    
     img_io = await loop.run_in_executor(process_pool, process_banner_image, banner_data, avatar, banner)
 
     return Response(content=img_io.getvalue(), media_type="image/png", headers={"Cache-Control": "public, max-age=300"})
