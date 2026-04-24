@@ -24,7 +24,7 @@ BANNER_END_Y = 0.65
 # Cherokee : NotoSansCherokee.ttf            (Cherokee script)
 FONT_FILE     = "arial_unicode_bold.otf"
 FONT_SYMBOLS  = "NotoSansSymbols2-Regular.ttf"
-FONT_CHEROKEE = "NotoSansCherokee.ttf"
+FONT_CHEROKEE = "arial_unicode_bold.otf"
 
 # ================= Lifespan =================
 @asynccontextmanager
