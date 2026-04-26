@@ -3,7 +3,6 @@ import os
 import asyncio
 import httpx
 import base64
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, ImageDraw, ImageFont
@@ -23,14 +22,18 @@ FONT_FILE     = "arial_unicode_bold.otf"
 FONT_SYMBOLS  = "arial_unicode_bold.otf"
 FONT_CHEROKEE = "NotoSansCherokee.ttf"
 
-# ================= PRE-LOAD FONTS ONCE AT STARTUP =================
-# Loading fonts per-request was the #1 bottleneck (~200-400ms per call).
-# All fonts are loaded once here and reused across every request.
+# ================= PRE-LOAD FONTS ONCE =================
+# Safe font loader — never crashes, always falls back to default
 def _load_font(size, font_file=FONT_FILE):
     try:
-        font_path = os.path.join(os.path.dirname(__file__), font_file)
-        if os.path.exists(font_path):
-            return ImageFont.truetype(font_path, size)
+        paths = [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), font_file),
+            os.path.join(os.getcwd(), font_file),
+            font_file,
+        ]
+        for path in paths:
+            if os.path.exists(path):
+                return ImageFont.truetype(path, size)
     except Exception:
         pass
     return ImageFont.load_default()
@@ -43,14 +46,10 @@ FONT_SMALL_CHEROKEE = _load_font(95,  FONT_CHEROKEE)
 FONT_SMALL_SYMBOLS  = _load_font(95,  FONT_SYMBOLS)
 FONT_LEVEL          = _load_font(50)
 
-# ================= Lifespan =================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    yield
-    await client.aclose()
-    process_pool.shutdown(wait=False)
-
-app = FastAPI(lifespan=lifespan)
+# ================= APP =================
+# No lifespan — Vercel serverless is stateless per invocation.
+# Module-level globals (fonts, client, pool) are reused on warm invocations.
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,12 +59,11 @@ app.add_middleware(
 )
 
 INFO_API_URL = "https://infofull.vercel.app/get"
-BASE64       = "aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL1NoYWhHQ3JlYXRvci9pY29uQG1haW4vUE5H"
-info_URL     = base64.b64decode(BASE64).decode("utf-8")
+BASE64_URL   = "aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL1NoYWhHQ3JlYXRvci9pY29uQG1haW4vUE5H"
+info_URL     = base64.b64decode(BASE64_URL).decode("utf-8")
 
-# Optimized HTTP client:
-# - timeout reduced to 8s (no point waiting 20s for a 2-3s target)
-# - connection limits tuned for concurrent image fetches
+# NO http2=True — requires optional 'h2' package.
+# Missing h2 → ImportError at module load → instant 500 crash on Vercel.
 client = httpx.AsyncClient(
     headers={
         "User-Agent": (
@@ -77,23 +75,19 @@ client = httpx.AsyncClient(
     timeout=httpx.Timeout(connect=4.0, read=8.0, write=4.0, pool=4.0),
     limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
     follow_redirects=True,
-    http2=True,   # HTTP/2 multiplexing where supported → faster parallel fetches
 )
 
-# More workers = more parallel image-processing threads
-process_pool = ThreadPoolExecutor(max_workers=8)
+process_pool = ThreadPoolExecutor(max_workers=4)
 
 
 # ================= HELPERS =================
 
 async def fetch_image_bytes(item_id):
     if not item_id or str(item_id) in ("0", "None", "null", ""):
-        print(f"DEBUG: Invalid ID {item_id}")
         return None
     url = f"{info_URL}/{item_id}.png"
     try:
         resp = await client.get(url)
-        print(f"DEBUG: Fetching {url} — Status: {resp.status_code}")
         if resp.status_code == 200:
             return resp.content
     except Exception as e:
@@ -145,7 +139,7 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
 
     TARGET_HEIGHT = 400
 
-    # ── Avatar crop ──────────────────────────────────────────
+    # Avatar
     zoom_size  = int(TARGET_HEIGHT * AVATAR_ZOOM)
     avatar_img = avatar_img.resize((zoom_size, zoom_size), Image.BILINEAR)
     left = (zoom_size - TARGET_HEIGHT) // 2 - AVATAR_SHIFT_X
@@ -153,8 +147,7 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
     avatar_img = avatar_img.crop((left, top, left + TARGET_HEIGHT, top + TARGET_HEIGHT))
     av_w       = avatar_img.width
 
-    # ── Banner crop ──────────────────────────────────────────
-    # rotate() with BILINEAR resample is ~40% faster than the default (nearest).
+    # Banner
     b_w, b_h = banner_img.size
     if b_w > 100 and b_h > 100:
         banner_img = banner_img.rotate(3, expand=True, resample=Image.BILINEAR)
@@ -166,32 +159,23 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
             int(bh_rot * BANNER_END_Y),
         ))
 
-    # ── Banner resize ────────────────────────────────────────
-    # BILINEAR is 2-3× faster than LANCZOS with virtually identical look at this scale.
     b_w, b_h    = banner_img.size
     aspect       = (b_w / b_h) if b_h > 0 else 2.0
     new_banner_w = int(TARGET_HEIGHT * aspect * 2)
     banner_img   = banner_img.resize((new_banner_w, TARGET_HEIGHT), Image.BILINEAR)
 
-    # ── Compose ──────────────────────────────────────────────
+    # Compose
     final_w  = av_w + new_banner_w
     combined = Image.new("RGBA", (final_w, TARGET_HEIGHT), (0, 0, 0, 255))
     combined.paste(avatar_img, (0, 0))
     combined.paste(banner_img, (av_w, 0))
     draw = ImageDraw.Draw(combined)
 
-    # ── Text rendering ───────────────────────────────────────
-    # OLD approach: manual nested loops → (stroke*2+1)² draw.text() calls per char.
-    # For stroke=4 that's 81 calls per character — extremely slow on long names.
-    #
-    # NEW: PIL's built-in stroke_width/stroke_fill renders the outline in a single
-    # native C call, far faster regardless of stroke size or text length.
-
+    # Text — native PIL stroke (replaces 81-call manual loop per character)
     def draw_text(x, y, text, f_main, f_cherokee, f_symbols, stroke):
         cx = x
         for ch in text:
-            cp = ord(ch)
-            f  = pick_font(cp, f_main, f_cherokee, f_symbols)
+            f = pick_font(ord(ch), f_main, f_cherokee, f_symbols)
             draw.text(
                 (cx, y), ch, font=f,
                 fill="white",
@@ -203,11 +187,11 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
     draw_text(av_w + 65, 40,  name,  FONT_LARGE, FONT_LARGE_CHEROKEE, FONT_LARGE_SYMBOLS, 4)
     draw_text(av_w + 65, 220, guild, FONT_SMALL, FONT_SMALL_CHEROKEE, FONT_SMALL_SYMBOLS, 3)
 
-    # ── Level badge ──────────────────────────────────────────
+    # Level badge
     lvl_text = f"Lvl.{level}"
-    bbox     = draw.textbbox((0, 0), lvl_text, font=FONT_LEVEL)
-    w        = bbox[2] - bbox[0]
-    h        = bbox[3] - bbox[1]
+    bbox = draw.textbbox((0, 0), lvl_text, font=FONT_LEVEL)
+    w    = bbox[2] - bbox[0]
+    h    = bbox[3] - bbox[1]
     draw.rectangle(
         [final_w - w - 60, TARGET_HEIGHT - h - 50, final_w, TARGET_HEIGHT],
         fill="black",
@@ -217,9 +201,9 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
         lvl_text, font=FONT_LEVEL, fill="white",
     )
 
-    # ── Encode ───────────────────────────────────────────────
+    # Encode — compress_level=1 is the fastest valid PNG write
     img_io = io.BytesIO()
-    combined.save(img_io, "PNG", optimize=False, compress_level=1)  # level 1 = fastest encode
+    combined.save(img_io, "PNG", compress_level=1)
     img_io.seek(0)
     return img_io
 
@@ -237,9 +221,9 @@ async def get_banner(uid: str):
 
     data = resp.json()
 
-    account    = data.get("AccountInfo") or {}
+    account    = data.get("AccountInfo")      or {}
     captain    = data.get("captainBasicInfo") or {}
-    guild_info = data.get("GuildInfo") or {}
+    guild_info = data.get("GuildInfo")        or {}
 
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -249,7 +233,6 @@ async def get_banner(uid: str):
 
     print(f"DEBUG: IDs → Avatar: {avatar_id}, Banner: {banner_id}")
 
-    # Fetch both images in parallel (no change here — was already optimal)
     avatar, banner = await asyncio.gather(
         fetch_image_bytes(avatar_id),
         fetch_image_bytes(banner_id),
@@ -261,7 +244,7 @@ async def get_banner(uid: str):
         "GuildName":    guild_info.get("GuildName")  or "",
     }
 
-    loop   = asyncio.get_running_loop()   # get_event_loop() is deprecated
+    loop   = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(
         process_pool, process_banner_image, banner_data, avatar, banner
     )
@@ -269,7 +252,7 @@ async def get_banner(uid: str):
     return Response(
         content=img_io.getvalue(),
         media_type="image/png",
-        headers={"Cache-Control": "no-store"},   # no caching as requested
+        headers={"Cache-Control": "no-store"},
     )
 
 
