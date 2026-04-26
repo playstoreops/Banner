@@ -224,12 +224,10 @@ async def get_banner(uid: str):
     if not basic_info:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    # Use profileInfo.avatarId for the avatar, and basicInfo.headPic as fallback
-    # If no headPic found anywhere, fall back to default avatar ID 900000013
-    avatar_id = profile_info.get("headPic") or basic_info.get("headPic") or 900000013
-    # Try to get banner from captainBasicInfo first, then basicInfo
-    # If no bannerId found anywhere, fall back to default banner ID 900000014
-    banner_id = captain_info.get("bannerId") or basic_info.get("bannerId") or basic_info.get("badgeId") or 900000014
+    # Use profileInfo.headPic first, then basicInfo.headPic, fallback to default
+    avatar_id = profile_info.get("headPic") or basic_info.get("headPic")
+    # Try to get banner from captainBasicInfo first, then basicInfo, fallback to default
+    banner_id = captain_info.get("bannerId") or basic_info.get("bannerId") or basic_info.get("badgeId")
 
     print(f"DEBUG: IDs → Avatar: {avatar_id}, Banner: {banner_id}")
 
@@ -237,6 +235,16 @@ async def get_banner(uid: str):
         fetch_image_bytes(avatar_id),
         fetch_image_bytes(banner_id),
     )
+
+    # Agar avatar fetch nahi hua to fallback ID 900000013 se retry
+    if avatar is None:
+        print("DEBUG: Avatar fetch failed, retrying with fallback ID 900000013")
+        avatar = await fetch_image_bytes(900000013)
+
+    # Agar banner fetch nahi hua to fallback ID 900000014 se retry
+    if banner is None:
+        print("DEBUG: Banner fetch failed, retrying with fallback ID 900000014")
+        banner = await fetch_image_bytes(900000014)
 
     banner_data = {
         "level":    basic_info.get("level")    or "0",
