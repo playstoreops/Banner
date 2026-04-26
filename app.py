@@ -225,7 +225,7 @@ async def get_banner(uid: str):
         raise HTTPException(status_code=404, detail="Account not found")
 
     # Use profileInfo.avatarId for the avatar, and basicInfo.headPic as fallback
-    avatar_id = profile_info.get("avatarId") or basic_info.get("headPic")
+    avatar_id = profile_info.get("headPic") or basic_info.get("headPic")
     # Try to get banner from captainBasicInfo first, then basicInfo
     banner_id = captain_info.get("bannerId") or basic_info.get("bannerId") or basic_info.get("badgeId")
 
