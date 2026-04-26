@@ -22,9 +22,9 @@ BANNER_END_Y = 0.65
 # Primary  : NotoSansCJKjp-Bold.otf          (Latin, CJK, most scripts)
 # Symbols  : NotoSansSymbols2-Regular.ttf    (enclosed chars, misc symbols, superscripts, emoji-adjacent)
 # Cherokee : NotoSansCherokee.ttf            (Cherokee script)
-FONT_FILE     = "BabelStoneHan.ttf"
-FONT_SYMBOLS  = "BabelStoneHan.ttf"
-FONT_CHEROKEE = "BabelStoneHan.ttf"
+FONT_FILE     = "arial_unicode_bold.otf"
+FONT_SYMBOLS  = "arial_unicode_bold.otf"
+FONT_CHEROKEE = "NotoSansCherokee.ttf"
 
 # ================= Lifespan =================
 @asynccontextmanager
