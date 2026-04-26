@@ -23,7 +23,6 @@ FONT_SYMBOLS  = "arial_unicode_bold.otf"
 FONT_CHEROKEE = "NotoSansCherokee.ttf"
 
 # ================= PRE-LOAD FONTS ONCE =================
-# Safe font loader — never crashes, always falls back to default
 def _load_font(size, font_file=FONT_FILE):
     try:
         paths = [
@@ -47,8 +46,6 @@ FONT_SMALL_SYMBOLS  = _load_font(95,  FONT_SYMBOLS)
 FONT_LEVEL          = _load_font(50)
 
 # ================= APP =================
-# No lifespan — Vercel serverless is stateless per invocation.
-# Module-level globals (fonts, client, pool) are reused on warm invocations.
 app = FastAPI()
 
 app.add_middleware(
@@ -58,12 +55,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-INFO_API_URL = "https://infofull.vercel.app/get"
+INFO_API_URL = "https://awwzz.vercel.app/player-info"
 BASE64_URL   = "aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL1NoYWhHQ3JlYXRvci9pY29uQG1haW4vUE5H"
 info_URL     = base64.b64decode(BASE64_URL).decode("utf-8")
 
-# NO http2=True — requires optional 'h2' package.
-# Missing h2 → ImportError at module load → instant 500 crash on Vercel.
 client = httpx.AsyncClient(
     headers={
         "User-Agent": (
@@ -133,9 +128,9 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
     avatar_img = bytes_to_image(avatar_bytes)
     banner_img = bytes_to_image(banner_bytes)
 
-    level = str(data.get("AccountLevel") or "0")
-    name  = data.get("AccountName")  or "Unknown"
-    guild = data.get("GuildName")    or ""
+    level = str(data.get("level") or "0")
+    name  = data.get("nickname") or "Unknown"
+    guild = data.get("clanName") or ""
 
     TARGET_HEIGHT = 400
 
@@ -171,7 +166,7 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
     combined.paste(banner_img, (av_w, 0))
     draw = ImageDraw.Draw(combined)
 
-    # Text — native PIL stroke (replaces 81-call manual loop per character)
+    # Text
     def draw_text(x, y, text, f_main, f_cherokee, f_symbols, stroke):
         cx = x
         for ch in text:
@@ -201,7 +196,7 @@ def process_banner_image(data, avatar_bytes, banner_bytes):
         lvl_text, font=FONT_LEVEL, fill="white",
     )
 
-    # Encode — compress_level=1 is the fastest valid PNG write
+    # Encode
     img_io = io.BytesIO()
     combined.save(img_io, "PNG", compress_level=1)
     img_io.seek(0)
@@ -221,15 +216,18 @@ async def get_banner(uid: str):
 
     data = resp.json()
 
-    account    = data.get("AccountInfo")      or {}
-    captain    = data.get("captainBasicInfo") or {}
-    guild_info = data.get("GuildInfo")        or {}
+    basic_info     = data.get("basicInfo")       or {}
+    profile_info   = data.get("profileInfo")     or {}
+    clan_info      = data.get("clanBasicInfo")   or {}
+    captain_info   = data.get("captainBasicInfo") or {}
 
-    if not account:
+    if not basic_info:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    avatar_id = account.get("AccountAvatarId") or captain.get("headPic")
-    banner_id = account.get("AccountBannerId") or captain.get("bannerId")
+    # Use profileInfo.avatarId for the avatar, and basicInfo.headPic as fallback
+    avatar_id = profile_info.get("avatarId") or basic_info.get("headPic")
+    # Try to get banner from captainBasicInfo first, then basicInfo
+    banner_id = captain_info.get("bannerId") or basic_info.get("bannerId") or basic_info.get("badgeId")
 
     print(f"DEBUG: IDs → Avatar: {avatar_id}, Banner: {banner_id}")
 
@@ -239,9 +237,9 @@ async def get_banner(uid: str):
     )
 
     banner_data = {
-        "AccountLevel": account.get("AccountLevel") or "0",
-        "AccountName":  account.get("AccountName")  or "Unknown",
-        "GuildName":    guild_info.get("GuildName")  or "",
+        "level":    basic_info.get("level")    or "0",
+        "nickname": basic_info.get("nickname") or "Unknown",
+        "clanName": clan_info.get("clanName")   or "",
     }
 
     loop   = asyncio.get_running_loop()
