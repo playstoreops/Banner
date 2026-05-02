@@ -55,7 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-INFO_API_URL = "http://87.232.72.83:5000/player-info"
+INFO_API_URL = "https://awwzz.vercel.app/player-info"
 BASE64_URL   = "aHR0cHM6Ly9jZG4uanNkZWxpdnIubmV0L2doL1NoYWhHQ3JlYXRvci9pY29uQG1haW4vUE5H"
 info_URL     = base64.b64decode(BASE64_URL).decode("utf-8")
 
